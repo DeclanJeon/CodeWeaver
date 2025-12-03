@@ -104,6 +104,16 @@ class WebSourceAggregator:
         'vendor', 'packages', 'bower_components'
     }
     
+    # Method to check if a directory should be excluded
+    def _should_exclude_dir(self, dir_name: str) -> bool:
+        # Exclude directories starting with .
+        if dir_name.startswith('.'):
+            return True
+        # Exclude directories in DEFAULT_EXCLUDE_DIRS
+        if dir_name in self.DEFAULT_EXCLUDE_DIRS:
+            return True
+        return False
+    
     def __init__(self, root_dir: str, max_file_size_mb: float = 10):
         self.root_dir = Path(root_dir).resolve()
         self._validate_root_dir()
@@ -140,7 +150,7 @@ class WebSourceAggregator:
                 items = sorted(dir_path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
                 
                 for item in items:
-                    if item.is_dir() and item.name not in self.DEFAULT_EXCLUDE_DIRS:
+                    if item.is_dir() and not self._should_exclude_dir(item.name):
                         try:
                             child_data = analyze_dir(item, dir_path)
                             dir_info.children.append(child_data)
@@ -152,13 +162,26 @@ class WebSourceAggregator:
                 for item in items:
                     if item.is_file():
                         try:
+                            # Get relative path to check for hidden directories in the path
+                            relative_path = str(item.relative_to(self.root_dir))
+                            path_parts = relative_path.split('/')
+                            
+                            # Check if file is hidden or in a hidden directory
+                            is_hidden = item.name.startswith('.')
+                            is_in_hidden_dir = any(part.startswith('.') for part in path_parts[:-1])
+                            is_lock_file = 'lock' in item.name.lower() and item.name.endswith(('.yaml', '.yml', '.json'))
+                            
+                            # Skip hidden files, files in hidden directories, and lock files
+                            if is_hidden or is_in_hidden_dir or is_lock_file:
+                                continue
+                                
                             file_stat = item.stat()
                             if file_stat.st_size <= self.max_file_size:
                                 file_info = FileInfo(
                                     path=str(item),
                                     size=file_stat.st_size,
                                     extension=item.suffix.lower(),
-                                    relative_path=str(item.relative_to(self.root_dir)),
+                                    relative_path=relative_path,
                                     last_modified=file_stat.st_mtime
                                 )
                                 
